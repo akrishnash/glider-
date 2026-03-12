@@ -1,0 +1,25 @@
+{
+  "manifest_version": 3,
+  "name": "Glider Extension",
+  "description": "Fill Greenhouse job application fields from a saved Glider profile, directly in your browser tab.",
+  "version": "0.1.0",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Glide this Greenhouse form"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://boards.greenhouse.io/*"
+      ],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+
