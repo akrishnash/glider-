@@ -1,5 +1,5 @@
-import { eq } from "drizzle-orm";
-import { db, users, profiles, preferences, jobs } from "../db/index.js";
+import { eq, and } from "drizzle-orm";
+import { db, users, profiles, preferences, jobs, resumes } from "../db/index.js";
 import type { ApplicationPlan } from "./goalBuilder.js";
 
 export interface PlanInput {
@@ -19,23 +19,49 @@ export function buildPlan(input: PlanInput): ApplicationPlan | null {
   if (!user) return null;
 
   const profile = db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1).get();
-  const prefs = db.select().from(preferences).where(eq(preferences.userId, userId)).limit(1).get();
   const job = db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1).get();
   if (!job) return null;
 
-  const fullName = profile?.fullName ?? "";
+  let resumeExtract: typeof resumes.$inferSelect.extract = null;
+  if (resumeFileKey) {
+    const resumeRow = db
+      .select()
+      .from(resumes)
+      .where(and(eq(resumes.userId, userId), eq(resumes.fileKey, resumeFileKey)))
+      .limit(1)
+      .get();
+    resumeExtract = resumeRow?.extract ?? null;
+  }
+
+  // Prefer profile over resume extract when user has set profile fields (Profile tab edits are used first).
+  const fullName = profile?.fullName?.trim() || resumeExtract?.name || "";
+  const phone = profile?.phone?.trim() || resumeExtract?.phone || "";
+  const location = profile?.location ?? "";
+  const address = profile?.address?.trim() || resumeExtract?.address || undefined;
+  const dateOfBirth = profile?.dateOfBirth ?? undefined;
+  const email = user.email;
 
   const plan: ApplicationPlan = {
     personal: {
-      full_name: fullName || "Candidate",
-      email: user.email,
-      phone: profile?.phone ?? "",
-      location: profile?.location ?? "",
+      full_name: fullName?.trim() || "Candidate",
+      email,
+      phone,
+      location,
+      address,
+      date_of_birth: dateOfBirth,
       linkedin_url: profile?.linkedinUrl ?? undefined,
       portfolio_url: profile?.portfolioUrl ?? undefined,
     },
     answers: {},
   };
+
+  if (resumeExtract?.education && resumeExtract.education.length > 0) {
+    plan.education = resumeExtract.education.map((e) => ({
+      degree: e.degree,
+      school: e.school,
+      year: e.year,
+    }));
+  }
 
   if (resumeFileKey && baseUrl) {
     plan.resume_url = `${baseUrl}/api/resumes/file/${resumeFileKey}`;

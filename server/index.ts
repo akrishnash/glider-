@@ -31,7 +31,8 @@ app.use((err: Error, _req: express.Request, res: express.Response, _next: expres
 startPolling();
 
 const desiredPort = Number(process.env.PORT) || 3000;
-const maxAttempts = 5;
+const isDev = process.env.NODE_ENV !== "production";
+const maxAttempts = isDev ? 1 : 5;
 
 function tryListen(port: number): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -61,7 +62,11 @@ function tryListen(port: number): Promise<void> {
       if (e.code === "EADDRINUSE" && i < maxAttempts - 1) {
         console.warn("Port " + port + " in use, trying " + (port + 1) + "...");
       } else {
-        console.error("Could not start server:", e.message);
+        if (isDev) {
+          console.error("Port " + desiredPort + " is in use. Stop the other process using it (e.g. another npm run dev) and try again.");
+        } else {
+          console.error("Could not start server:", e.message);
+        }
         process.exit(1);
       }
     }

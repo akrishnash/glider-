@@ -1,25 +1,38 @@
 {
   "manifest_version": 3,
-  "name": "Glider Extension",
-  "description": "Fill Greenhouse job application fields from a saved Glider profile, directly in your browser tab.",
-  "version": "0.1.0",
-  "permissions": [
-    "activeTab",
-    "scripting",
-    "storage"
+  "name": "Glider Job Autofill",
+  "description": "Auto-fill job applications on Greenhouse and Lever with your saved profile.",
+  "version": "1.0.0",
+  "permissions": ["activeTab", "storage", "scripting"],
+  "host_permissions": [
+    "https://boards.greenhouse.io/*",
+    "https://jobs.lever.co/*",
+    "http://localhost/*"
   ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Glide this Greenhouse form"
+    "default_title": "Glider - Manage profile and autofill",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
       "matches": [
-        "https://boards.greenhouse.io/*"
+        "https://boards.greenhouse.io/*",
+        "https://jobs.lever.co/*"
       ],
-      "js": ["content.js"],
+      "js": ["profile.js", "content.js"],
       "run_at": "document_idle"
     }
   ]
 }
-

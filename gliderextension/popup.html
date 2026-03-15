@@ -1,12 +1,175 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Glider Extension</title>
+    <title>Glider — Profile</title>
+    <style>
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        width: 380px;
+        min-height: 420px;
+        margin: 0;
+        padding: 12px;
+        font-size: 13px;
+        color: #1a1a1a;
+        background: #f8f9fa;
+      }
+      .glider-ext-heading {
+        font-size: 16px;
+        font-weight: 600;
+        margin: 0 0 12px 0;
+        color: #0d47a1;
+      }
+      .glider-ext-tabs {
+        display: flex;
+        gap: 4px;
+        margin-bottom: 12px;
+        border-bottom: 1px solid #dee2e6;
+      }
+      .glider-ext-tab {
+        padding: 8px 12px;
+        border: none;
+        background: none;
+        cursor: pointer;
+        font-size: 13px;
+        color: #495057;
+        border-bottom: 2px solid transparent;
+        margin-bottom: -1px;
+      }
+      .glider-ext-tab:hover { color: #0d47a1; }
+      .glider-ext-tab.glider-ext-active {
+        color: #0d47a1;
+        font-weight: 600;
+        border-bottom-color: #0d47a1;
+      }
+      .glider-ext-panel { display: none; }
+      .glider-ext-panel.glider-ext-active { display: block; }
+      .glider-ext-field {
+        margin-bottom: 10px;
+      }
+      .glider-ext-field label {
+        display: block;
+        margin-bottom: 4px;
+        color: #495057;
+        font-weight: 500;
+      }
+      .glider-ext-field input,
+      .glider-ext-field select,
+      .glider-ext-field textarea {
+        width: 100%;
+        padding: 6px 8px;
+        border: 1px solid #ced4da;
+        border-radius: 4px;
+        font-size: 13px;
+      }
+      .glider-ext-field textarea {
+        min-height: 72px;
+        resize: vertical;
+      }
+      .glider-ext-file-wrap {
+        font-size: 12px;
+        color: #6c757d;
+      }
+      .glider-ext-autofill-btn {
+        width: 100%;
+        margin-top: 12px;
+        padding: 10px 16px;
+        background: #0d47a1;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      .glider-ext-autofill-btn:hover { background: #1565c0; }
+      .glider-ext-autofill-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+      .glider-ext-saved {
+        font-size: 11px;
+        color: #28a745;
+        margin-top: 4px;
+      }
+    </style>
   </head>
   <body>
-    <h1>Glider Extension</h1>
-    <p>Basic popup placeholder.</p>
+    <h1 class="glider-ext-heading">Glider Profile</h1>
+    <div class="glider-ext-tabs">
+      <button type="button" class="glider-ext-tab glider-ext-active" data-tab="personal">Personal</button>
+      <button type="button" class="glider-ext-tab" data-tab="professional">Professional</button>
+      <button type="button" class="glider-ext-tab" data-tab="resume">Resume</button>
+      <button type="button" class="glider-ext-tab" data-tab="custom">Custom Q&amp;A</button>
+      <button type="button" class="glider-ext-tab" data-tab="dashboard">🔗 Dashboard</button>
+    </div>
+
+    <div id="panel-personal" class="glider-ext-panel glider-ext-active">
+      <div class="glider-ext-field"><label>First name</label><input type="text" id="first_name" data-key="personal.first_name" /></div>
+      <div class="glider-ext-field"><label>Last name</label><input type="text" id="last_name" data-key="personal.last_name" /></div>
+      <div class="glider-ext-field"><label>Email</label><input type="email" id="email" data-key="personal.email" /></div>
+      <div class="glider-ext-field"><label>Phone</label><input type="text" id="phone" data-key="personal.phone" /></div>
+      <div class="glider-ext-field"><label>LinkedIn</label><input type="url" id="linkedin" data-key="personal.linkedin" placeholder="https://linkedin.com/in/..." /></div>
+      <div class="glider-ext-field"><label>GitHub</label><input type="url" id="github" data-key="personal.github" placeholder="https://github.com/..." /></div>
+      <div class="glider-ext-field"><label>Portfolio</label><input type="url" id="portfolio" data-key="personal.portfolio" /></div>
+      <div class="glider-ext-field"><label>City</label><input type="text" id="city" data-key="personal.city" /></div>
+      <div class="glider-ext-field"><label>State / Region</label><input type="text" id="state" data-key="personal.state" /></div>
+      <div class="glider-ext-field"><label>Country</label><input type="text" id="country" data-key="personal.country" /></div>
+    </div>
+
+    <div id="panel-professional" class="glider-ext-panel">
+      <div class="glider-ext-field"><label>Current title</label><input type="text" id="current_title" data-key="professional.current_title" /></div>
+      <div class="glider-ext-field"><label>Years of experience</label><input type="text" id="years_experience" data-key="professional.years_experience" placeholder="e.g. 5" /></div>
+      <div class="glider-ext-field"><label>Salary expectation</label><input type="text" id="salary_expectation" data-key="professional.salary_expectation" placeholder="e.g. 120k or Range" /></div>
+      <div class="glider-ext-field"><label>Notice period</label><input type="text" id="notice_period" data-key="professional.notice_period" placeholder="e.g. 2 weeks" /></div>
+    </div>
+
+    <div id="panel-resume" class="glider-ext-panel">
+      <div class="glider-ext-field">
+        <label>Resume (PDF preferred)</label>
+        <input type="file" id="resume_file" accept=".pdf,.doc,.docx" />
+        <div class="glider-ext-file-wrap" id="resume_filename">No file chosen</div>
+      </div>
+    </div>
+
+    <div id="panel-custom" class="glider-ext-panel">
+      <div class="glider-ext-field">
+        <label>Cover letter / Why us</label>
+        <textarea id="cover_letter" data-key="custom_answers.cover_letter" placeholder="Paste or type a short cover letter or 'why do you want to work here' answer."></textarea>
+      </div>
+      <div class="glider-ext-field">
+        <label>Custom Q&A (one per line: Question|Answer)</label>
+        <textarea id="custom_qa" placeholder="e.g. Why do you want to work here?|I am excited about..."></textarea>
+      </div>
+      <div class="glider-ext-saved" id="custom_saved"></div>
+    </div>
+
+    <div id="panel-dashboard" class="glider-ext-panel">
+      <div class="glider-ext-field">
+        <label>Dashboard URL</label>
+        <input type="url" id="dashboard_url" placeholder="http://localhost:5173" />
+        <div style="font-size:11px;color:#6c757d;margin-top:4px;">The URL where your Glider web app is running.</div>
+      </div>
+      <div class="glider-ext-field" id="dashboard_token_wrap">
+        <label>Auth Token</label>
+        <input type="password" id="dashboard_token" placeholder="Paste your JWT token" />
+        <div style="font-size:11px;color:#6c757d;margin-top:4px;">
+          In the web app, open DevTools → Application → Local Storage → <code>glider_token</code>.
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button type="button" id="dashboard_save_btn" style="flex:1;padding:8px;background:#0d47a1;color:#fff;border:none;border-radius:6px;font-size:13px;font-weight:600;cursor:pointer;">Save &amp; Sync Profile</button>
+        <button type="button" id="dashboard_clear_btn" style="padding:8px 12px;background:none;color:#6c757d;border:1px solid #ced4da;border-radius:6px;font-size:13px;cursor:pointer;">Clear</button>
+      </div>
+      <div id="dashboard_status" style="font-size:12px;margin-top:8px;min-height:18px;"></div>
+      <hr style="margin:12px 0;border:none;border-top:1px solid #dee2e6;" />
+      <div style="font-size:12px;color:#6c757d;">
+        <strong style="color:#1a1a1a;">After autofilling a form:</strong><br/>
+        The extension will automatically log the application to your dashboard if a token is saved.
+      </div>
+    </div>
+
+    <button type="button" class="glider-ext-autofill-btn" id="autofill_btn">⚡ Autofill current page</button>
+
+    <script src="profile.js"></script>
+    <script src="popup.js"></script>
   </body>
 </html>
-

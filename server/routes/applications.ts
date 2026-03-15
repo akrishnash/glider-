@@ -1,11 +1,12 @@
 import { Router, Request, Response } from "express";
+import { Readable } from "stream";
 import { v4 as uuid } from "uuid";
 import { db, applications, jobs, resumes, resumeDownloadTokens, profiles } from "../db/index.js";
 import { eq, and, desc } from "drizzle-orm";
 import { authMiddleware, type JwtPayload } from "../middleware/auth.js";
 import { buildPlan } from "../services/planBuilder.js";
-import { buildGreenhouseGoal, detectPlatformFromUrl } from "../services/goalBuilder.js";
-import { startRunAsync, getRunStatus } from "../services/tinyfish.js";
+import { buildGreenhouseGoal } from "../services/goalBuilder.js";
+import { startRunAsync, getRunStatus, startRunSSE } from "../services/tinyfish.js";
 
 const router = Router();
 router.use(authMiddleware);
@@ -16,6 +17,13 @@ function getBaseUrl(req: Request): string {
   const host = req.get("host") || "localhost:3000";
   const proto = req.get("x-forwarded-proto") || "http";
   return `${proto}://${host}`;
+}
+
+/** Base URL for links that external services (e.g. TinyFish) must fetch. Use PUBLIC_BASE_URL when set so localhost is not sent to the cloud. */
+function getPublicBaseUrl(req: Request): string {
+  const pub = process.env.PUBLIC_BASE_URL?.trim();
+  if (pub) return pub.replace(/\/$/, "");
+  return getBaseUrl(req);
 }
 
 function extractStreamingUrl(result: unknown): string | null {
@@ -67,6 +75,7 @@ router.post("/run", async (req: Request, res: Response) => {
     return;
   }
   const baseUrl = getBaseUrl(req);
+  const publicBaseUrl = getPublicBaseUrl(req);
   const created: { id: string; job_id: string; status: string; run_id?: string }[] = [];
   const errors: { job_id: string; message: string }[] = [];
 
@@ -112,7 +121,7 @@ router.post("/run", async (req: Request, res: Response) => {
         fileKey: latestResume.fileKey,
         expiresAt: new Date(Date.now() + TOKEN_TTL_MS),
       }).run();
-      resumeUrl = `${baseUrl}/api/resumes/download?token=${token}`;
+      resumeUrl = `${publicBaseUrl}/api/resumes/download?token=${token}`;
     }
     const plan = buildPlan({
       userId: user.userId,
@@ -182,6 +191,116 @@ router.post("/run", async (req: Request, res: Response) => {
   }
 
   res.status(201).json({ applications: created, errors: errors.length ? errors : undefined });
+});
+
+/**
+ * Run a single job application with live SSE stream from Tinyfish.
+ * POST body: { job_id: string }
+ * Response: text/event-stream; first event is { type: "start", application_id }, then Tinyfish events.
+ */
+router.post("/run-sse", async (req: Request, res: Response) => {
+  const { user } = req as Request & { user: JwtPayload };
+  const { job_id: jobId } = req.body as { job_id?: string };
+  if (!jobId) {
+    res.status(400).json({ error: { code: "INVALID_INPUT", message: "job_id required" } });
+    return;
+  }
+
+  const baseUrl = getBaseUrl(req);
+  const publicBaseUrl = getPublicBaseUrl(req);
+  const profile = db.select().from(profiles).where(eq(profiles.userId, user.userId)).limit(1).get();
+  const [latestResume] = db
+    .select()
+    .from(resumes)
+    .where(eq(resumes.userId, user.userId))
+    .orderBy(desc(resumes.uploadedAt))
+    .limit(1)
+    .all();
+
+  if (!profile?.fullName?.trim() || !profile?.phone?.trim() || !profile?.location?.trim()) {
+    res.status(400).json({ error: { code: "PROFILE_INCOMPLETE", message: "Missing required profile: full_name, phone, location" } });
+    return;
+  }
+  if (!latestResume) {
+    res.status(400).json({ error: { code: "PROFILE_INCOMPLETE", message: "Upload a resume first" } });
+    return;
+  }
+
+  const [job] = db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1).all();
+  if (!job) {
+    res.status(404).json({ error: { code: "NOT_FOUND", message: "Job not found" } });
+    return;
+  }
+
+  const token = uuid();
+  db.insert(resumeDownloadTokens).values({
+    token,
+    userId: user.userId,
+    fileKey: latestResume.fileKey,
+    expiresAt: new Date(Date.now() + TOKEN_TTL_MS),
+  }).run();
+  const resumeUrl = `${publicBaseUrl}/api/resumes/download?token=${token}`;
+
+  const plan = buildPlan({
+    userId: user.userId,
+    jobId,
+    resumeFileKey: latestResume.fileKey,
+    baseUrl,
+  });
+  if (!plan) {
+    res.status(500).json({ error: { code: "INTERNAL_ERROR", message: "Failed to build plan" } });
+    return;
+  }
+  plan.resume_url = resumeUrl;
+
+  const goal = buildGreenhouseGoal(plan);
+  const appId = uuid();
+  const now = new Date();
+  db.insert(applications).values({
+    id: appId,
+    userId: user.userId,
+    jobId,
+    status: "running",
+    planSnapshot: plan as unknown as Record<string, unknown>,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+
+  try {
+    const tinyfishRes = await startRunSSE({
+      url: job.sourceUrl,
+      goal,
+      browser_profile: "stealth",
+      api_integration: "glider",
+    });
+
+    if (!tinyfishRes.ok) {
+      const errData = (await tinyfishRes.json().catch(() => ({}))) as { error?: { message?: string } };
+      db.update(applications).set({ status: "failed", result: { error: errData?.error?.message ?? "TinyFish failed" }, updatedAt: new Date() }).where(eq(applications.id, appId)).run();
+      res.status(500).json({ error: { code: "TINYFISH_ERROR", message: errData?.error?.message ?? "TinyFish request failed" } });
+      return;
+    }
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("X-Accel-Buffering", "no");
+    res.flushHeaders?.();
+
+    const startEvent = `data: ${JSON.stringify({ type: "start", application_id: appId, job_id: jobId })}\n\n`;
+    res.write(startEvent);
+
+    const body = tinyfishRes.body;
+    if (body) {
+      const nodeStream = Readable.fromWeb(body as Parameters<typeof Readable.fromWeb>[0]);
+      nodeStream.pipe(res, { end: true });
+    } else {
+      res.end();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    db.update(applications).set({ status: "failed", result: { error: message }, updatedAt: new Date() }).where(eq(applications.id, appId)).run();
+    res.status(500).json({ error: { code: "INTERNAL_ERROR", message } });
+  }
 });
 
 router.get("/stats", (req: Request, res: Response) => {
@@ -266,7 +385,7 @@ router.get("/:id", (req: Request, res: Response) => {
   });
 });
 
-router.patch("/:id", (req: Request, res: Response) => {
+router.patch("/:id/status", (req: Request, res: Response) => {
   const { user } = req as Request & { user: JwtPayload };
   const id = req.params.id as string;
   const body = req.body as { status?: string };
@@ -275,11 +394,102 @@ router.patch("/:id", (req: Request, res: Response) => {
     res.status(404).json({ error: { code: "NOT_FOUND", message: "Application not found" } });
     return;
   }
-  if (body.status && ["manual_review", "pending"].includes(body.status)) {
-    db.update(applications).set({ status: body.status as "manual_review" | "pending", updatedAt: new Date() }).where(eq(applications.id, id)).run();
+  const allowed = ["pending", "submitted", "failed", "manual_review"];
+  if (!body.status || !allowed.includes(body.status)) {
+    res.status(400).json({ error: { code: "INVALID_STATUS", message: `status must be one of: ${allowed.join(", ")}` } });
+    return;
   }
+  const now = new Date();
+  db.update(applications)
+    .set({
+      status: body.status as "pending" | "submitted" | "failed" | "manual_review",
+      submittedAt: body.status === "submitted" ? now : a.submittedAt,
+      updatedAt: now,
+    })
+    .where(eq(applications.id, id))
+    .run();
   const updated = db.select().from(applications).where(eq(applications.id, id)).limit(1).get();
   res.json({ application: updated });
+});
+
+/**
+ * POST /api/applications/log
+ * Record an application filled by the Chrome extension (or manually by the user).
+ * Creates a job entry if the URL hasn't been seen before.
+ * Called by: the web app "Mark Applied" button and the Chrome extension after autofill.
+ */
+router.post("/log", async (req: Request, res: Response) => {
+  const { user } = req as Request & { user: JwtPayload };
+  const body = req.body as {
+    url?: string;
+    company?: string;
+    position?: string;
+    status?: string;
+    source?: string;
+  };
+
+  if (!body.url?.trim().startsWith("http")) {
+    res.status(400).json({ error: { code: "INVALID_INPUT", message: "url is required" } });
+    return;
+  }
+
+  const { detectPlatformFromUrl } = await import("../services/goalBuilder.js");
+  const now = new Date();
+  const url = body.url.trim();
+  const platform = detectPlatformFromUrl(url);
+
+  let job = db.select().from(jobs).where(eq(jobs.sourceUrl, url)).limit(1).get();
+  if (!job) {
+    const jobId = uuid();
+    db.insert(jobs).values({
+      id: jobId,
+      sourceUrl: url,
+      platform,
+      companyName: body.company?.trim() || null,
+      jobTitle: body.position?.trim() || null,
+      rawDescription: null,
+      metadata: null,
+      discoveredAt: now,
+      createdAt: now,
+    }).run();
+    job = db.select().from(jobs).where(eq(jobs.id, jobId)).limit(1).get()!;
+  } else if (body.company || body.position) {
+    db.update(jobs).set({
+      companyName: body.company?.trim() || job.companyName,
+      jobTitle: body.position?.trim() || job.jobTitle,
+    }).where(eq(jobs.id, job.id)).run();
+  }
+
+  const allowedStatuses = ["pending", "submitted", "failed", "manual_review"];
+  const status = (body.status && allowedStatuses.includes(body.status))
+    ? (body.status as "pending" | "submitted" | "failed" | "manual_review")
+    : "submitted";
+
+  const appId = uuid();
+  db.insert(applications).values({
+    id: appId,
+    userId: user.userId,
+    jobId: job.id,
+    status,
+    runId: null,
+    planSnapshot: null,
+    result: { source: body.source ?? "manual" } as Record<string, unknown>,
+    submittedAt: status === "submitted" ? now : null,
+    createdAt: now,
+    updatedAt: now,
+  }).run();
+
+  const app = db.select().from(applications).where(eq(applications.id, appId)).limit(1).get()!;
+  res.status(201).json({
+    application: {
+      id: app.id,
+      job_id: app.jobId,
+      job: { source_url: job.sourceUrl, company_name: job.companyName, job_title: job.jobTitle, platform: job.platform },
+      status: app.status,
+      submitted_at: app.submittedAt,
+      created_at: app.createdAt,
+    },
+  });
 });
 
 export default router;

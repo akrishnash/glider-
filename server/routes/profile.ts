@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { v4 as uuid } from "uuid";
-import { db, profiles } from "../db/index.js";
+import { db, profiles, resumes } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { authMiddleware, type JwtPayload } from "../middleware/auth.js";
 
@@ -20,6 +20,8 @@ router.get("/", (req: Request, res: Response) => {
       full_name: p.fullName,
       phone: p.phone,
       location: p.location,
+      address: p.address,
+      date_of_birth: p.dateOfBirth,
       linkedin_url: p.linkedinUrl,
       portfolio_url: p.portfolioUrl,
       summary: p.summary,
@@ -40,13 +42,27 @@ router.put("/", (req: Request, res: Response) => {
       fullName: (body.full_name as string) ?? null,
       phone: (body.phone as string) ?? null,
       location: (body.location as string) ?? null,
+      address: (body.address as string) ?? null,
+      dateOfBirth: (body.date_of_birth as string) ?? null,
       linkedinUrl: (body.linkedin_url as string) ?? null,
       portfolioUrl: (body.portfolio_url as string) ?? null,
       summary: (body.summary as string) ?? null,
       createdAt: now,
       updatedAt: now,
     }).run();
-    res.json({ profile: { id, full_name: body.full_name, phone: body.phone, location: body.location, linkedin_url: body.linkedin_url, portfolio_url: body.portfolio_url, summary: body.summary } });
+    res.json({
+      profile: {
+        id,
+        full_name: body.full_name,
+        phone: body.phone,
+        location: body.location,
+        address: body.address,
+        date_of_birth: body.date_of_birth,
+        linkedin_url: body.linkedin_url,
+        portfolio_url: body.portfolio_url,
+        summary: body.summary,
+      },
+    });
     return;
   }
   db.update(profiles)
@@ -54,6 +70,8 @@ router.put("/", (req: Request, res: Response) => {
       fullName: (body.full_name as string) ?? existing.fullName,
       phone: (body.phone as string) ?? existing.phone,
       location: (body.location as string) ?? existing.location,
+      address: (body.address as string) ?? existing.address,
+      dateOfBirth: (body.date_of_birth as string) ?? existing.dateOfBirth,
       linkedinUrl: (body.linkedin_url as string) ?? existing.linkedinUrl,
       portfolioUrl: (body.portfolio_url as string) ?? existing.portfolioUrl,
       summary: (body.summary as string) ?? existing.summary,
@@ -63,16 +81,65 @@ router.put("/", (req: Request, res: Response) => {
     .run();
   const updated = db.select().from(profiles).where(eq(profiles.id, existing.id)).limit(1).get();
   res.json({
-    profile: updated ? {
-      id: updated.id,
-      full_name: updated.fullName,
-      phone: updated.phone,
-      location: updated.location,
-      linkedin_url: updated.linkedinUrl,
-      portfolio_url: updated.portfolioUrl,
-      summary: updated.summary,
-    } : {},
+    profile: updated
+      ? {
+          id: updated.id,
+          full_name: updated.fullName,
+          phone: updated.phone,
+          location: updated.location,
+          address: updated.address,
+          date_of_birth: updated.dateOfBirth,
+          linkedin_url: updated.linkedinUrl,
+          portfolio_url: updated.portfolioUrl,
+          summary: updated.summary,
+        }
+      : {},
   });
+});
+
+/**
+ * GET /api/profile/export
+ * Returns profile in the Chrome extension's expected format.
+ * The extension can fetch this (with a stored JWT) to pre-populate its local storage.
+ */
+router.get("/export", (req: Request, res: Response) => {
+  const { user } = req as Request & { user: JwtPayload };
+  const p = db.select().from(profiles).where(eq(profiles.userId, user.userId)).limit(1).get();
+  const resume = db.select().from(resumes).where(eq(resumes.userId, user.userId)).limit(1).get();
+
+  // Split full_name into first/last for the extension's profile format
+  const fullName = p?.fullName?.trim() ?? "";
+  const nameParts = fullName.split(/\s+/);
+  const firstName = nameParts[0] ?? "";
+  const lastName = nameParts.slice(1).join(" ");
+
+  const extensionProfile = {
+    personal: {
+      first_name: firstName,
+      last_name: lastName,
+      email: "",          // email comes from auth, not profile — extension must supply it
+      phone: p?.phone ?? "",
+      linkedin: p?.linkedinUrl ?? "",
+      github: "",
+      portfolio: p?.portfolioUrl ?? "",
+      city: p?.location ?? "",
+      state: "",
+      country: "",
+    },
+    professional: {
+      current_title: "",
+      years_experience: "",
+      salary_expectation: "",
+      notice_period: "",
+    },
+    resume: {
+      file_base64: "",
+      filename: resume?.fileName ?? "",
+    },
+    custom_answers: {},
+  };
+
+  res.json({ profile: extensionProfile });
 });
 
 export default router;

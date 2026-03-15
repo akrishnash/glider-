@@ -97,3 +97,29 @@ export async function getRunStatus(runId: string): Promise<RunStatusResponse> {
   }
   return res.json();
 }
+
+/**
+ * Start a run with Server-Sent Events stream. Returns the fetch Response so the caller can pipe res.body to the client.
+ * Use for live progress in the UI.
+ */
+export async function startRunSSE(body: RunAsyncBody): Promise<Response> {
+  const key = process.env.TINYFISH_API_KEY;
+  if (!key) throw new Error("TINYFISH_API_KEY is not set");
+
+  const res = await fetch(`${TINYFISH_BASE}/automation/run-sse`, {
+    method: "POST",
+    headers: {
+      "X-API-Key": key,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      url: body.url,
+      goal: body.goal,
+      browser_profile: body.browser_profile ?? "stealth",
+      proxy_config: body.proxy_config,
+      api_integration: body.api_integration ?? "glider",
+    }),
+  });
+
+  return res;
+}

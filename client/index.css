@@ -1,6 +1,12 @@
-* { box-sizing: border-box; }
-body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0d0d0f; color: #e4e4e7; min-height: 100vh; }
-#root { min-height: 100vh; }
-a { color: #7dd3fc; }
-input, textarea, button { font: inherit; }
-button { cursor: pointer; }
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; min-height: 100vh; }
+  #root { min-height: 100vh; }
+  a { color: #a78bfa; }
+  input, textarea, button { font: inherit; }
+  button { cursor: pointer; }
+}

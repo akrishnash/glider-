@@ -44,35 +44,38 @@ router.post("/ingest", async (req: Request, res: Response) => {
     if (platform === "greenhouse") toEnrich.push({ id, url: u });
   }
 
-  // Enrich a few newly-added Greenhouse jobs so titles/details aren't empty.
-  // Keep this small to avoid burning credits on bulk URL pastes.
-  const ENRICH_LIMIT = 3;
-  for (const item of toEnrich.slice(0, ENRICH_LIMIT)) {
-    try {
-      const goal =
-        "Extract the job title, company name, and full job description text from this Greenhouse job posting page. " +
-        "Return JSON with keys: job_title, company_name, description.";
-      const run = await runSync({ url: item.url, goal, browser_profile: "lite", api_integration: "glider" });
-      const r: any = (run as any)?.result ?? run;
-      const jobTitle = r?.job_title ?? r?.jobTitle ?? null;
-      const companyName = r?.company_name ?? r?.companyName ?? null;
-      const description = r?.description ?? r?.raw_description ?? null;
-      if (jobTitle || companyName || description) {
-        db.update(jobs)
-          .set({
-            jobTitle: jobTitle ?? undefined,
-            companyName: companyName ?? undefined,
-            rawDescription: description ?? undefined,
-          })
-          .where(eq(jobs.id, item.id))
-          .run();
-      }
-    } catch (err) {
-      // Non-fatal. The user can still Glide; this is only for nicer UI.
-      console.warn("Job enrich failed for", item.url, err);
-    }
-  }
+  // Return immediately; enrich in background so ingest doesn't hang.
   res.status(201).json({ jobs: created });
+
+  const ENRICH_LIMIT = 3;
+  const toRun = toEnrich.slice(0, ENRICH_LIMIT);
+  if (toRun.length === 0) return;
+  const goal =
+    "Extract the job title, company name, and full job description text from this Greenhouse job posting page. " +
+    "Return JSON with keys: job_title, company_name, description.";
+  (async () => {
+    for (const item of toRun) {
+      try {
+        const run = await runSync({ url: item.url, goal, browser_profile: "lite", api_integration: "glider" });
+        const r: any = (run as any)?.result ?? run;
+        const jobTitle = r?.job_title ?? r?.jobTitle ?? null;
+        const companyName = r?.company_name ?? r?.companyName ?? null;
+        const description = r?.description ?? r?.raw_description ?? null;
+        if (jobTitle || companyName || description) {
+          db.update(jobs)
+            .set({
+              jobTitle: jobTitle ?? undefined,
+              companyName: companyName ?? undefined,
+              rawDescription: description ?? undefined,
+            })
+            .where(eq(jobs.id, item.id))
+            .run();
+        }
+      } catch (err) {
+        console.warn("Job enrich failed for", item.url, err);
+      }
+    }
+  })();
 });
 
 router.get("/", (req: Request, res: Response) => {
@@ -114,6 +117,17 @@ router.get("/:id", (req: Request, res: Response) => {
       created_at: j.createdAt,
     },
   });
+});
+
+router.delete("/:id", (req: Request, res: Response) => {
+  const id = req.params.id as string;
+  const j = db.select().from(jobs).where(eq(jobs.id, id)).limit(1).get();
+  if (!j) {
+    res.status(404).json({ error: { code: "NOT_FOUND", message: "Job not found" } });
+    return;
+  }
+  db.delete(jobs).where(eq(jobs.id, id)).run();
+  res.status(204).send();
 });
 
 export default router;

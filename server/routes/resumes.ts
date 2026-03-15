@@ -3,9 +3,10 @@ import { v4 as uuid } from "uuid";
 import { existsSync, createReadStream, mkdirSync } from "fs";
 import { join } from "path";
 import multer from "multer";
-import { db, resumes, resumeDownloadTokens } from "../db/index.js";
+import { db, resumes, resumeDownloadTokens, profiles } from "../db/index.js";
 import { eq } from "drizzle-orm";
 import { authMiddleware, type JwtPayload } from "../middleware/auth.js";
+import { extractAndParseResume } from "../services/resumeParser.js";
 
 const router = Router();
 const uploadsDir = join(process.cwd(), "data", "uploads");
@@ -45,7 +46,7 @@ router.get("/download", (req: Request, res: Response) => {
 
 router.use(authMiddleware);
 
-router.post("/", upload.single("resume"), (req: Request, res: Response) => {
+router.post("/", upload.single("resume"), async (req: Request, res: Response) => {
   const { user } = req as Request & { user: JwtPayload };
   const file = req.file;
   if (!file) {
@@ -54,6 +55,10 @@ router.post("/", upload.single("resume"), (req: Request, res: Response) => {
   }
   const id = uuid();
   const fileKey = `${user.userId}/${file.filename}`;
+  const isPdf =
+    file.mimetype === "application/pdf" ||
+    (file.originalname && file.originalname.toLowerCase().endsWith(".pdf"));
+
   db.insert(resumes).values({
     id,
     userId: user.userId,
@@ -61,7 +66,54 @@ router.post("/", upload.single("resume"), (req: Request, res: Response) => {
     fileName: file.originalname || file.filename,
     uploadedAt: new Date(),
   }).run();
-  res.status(201).json({ id, file_key: fileKey, file_name: file.originalname || file.filename });
+
+  let extractedFields: string[] = [];
+  if (isPdf) {
+    try {
+      const extract = await extractAndParseResume(file.path);
+      const extractJson =
+        Object.keys(extract).length > 0
+          ? {
+              name: extract.name,
+              email: extract.email,
+              phone: extract.phone,
+              address: extract.address,
+              education: extract.education,
+            }
+          : null;
+      db.update(resumes).set({ extract: extractJson }).where(eq(resumes.id, id)).run();
+      if (extractJson) {
+        if (extract.name) extractedFields.push("name");
+        if (extract.email) extractedFields.push("email");
+        if (extract.phone) extractedFields.push("phone");
+        if (extract.address) extractedFields.push("address");
+        if (extract.education?.length) extractedFields.push("education");
+      }
+
+      const profile = db.select().from(profiles).where(eq(profiles.userId, user.userId)).limit(1).get();
+      if (profile && (extract.name || extract.phone || extract.address)) {
+        const updates: Record<string, string | null> = {};
+        if (extract.name && !profile.fullName?.trim()) updates.fullName = extract.name;
+        if (extract.phone && !profile.phone?.trim()) updates.phone = extract.phone;
+        if (extract.address && !profile.address?.trim()) updates.address = extract.address;
+        if (Object.keys(updates).length > 0) {
+          db.update(profiles)
+            .set({ ...updates, updatedAt: new Date() })
+            .where(eq(profiles.id, profile.id))
+            .run();
+        }
+      }
+    } catch {
+      // Parse failure: keep resume, leave extract null
+    }
+  }
+
+  res.status(201).json({
+    id,
+    file_key: fileKey,
+    file_name: file.originalname || file.filename,
+    ...(extractedFields.length > 0 && { extracted: true, extracted_fields: extractedFields }),
+  });
 });
 
 router.get("/", (req: Request, res: Response) => {

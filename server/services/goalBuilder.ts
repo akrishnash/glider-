@@ -2,17 +2,26 @@
  * Build a short natural-language goal for TinyFish to fill a Greenhouse job application.
  * Kept minimal to reduce token/credit use per run.
  */
+export interface EducationEntry {
+  degree?: string;
+  school?: string;
+  year?: string;
+}
+
 export interface ApplicationPlan {
   personal: {
     full_name: string;
     email: string;
     phone: string;
     location: string;
+    address?: string;
+    date_of_birth?: string;
     linkedin_url?: string;
     portfolio_url?: string;
   };
   resume_url?: string;
   cover_letter_url?: string;
+  education?: EducationEntry[];
   answers: Record<string, string>;
 }
 
@@ -27,10 +36,10 @@ export function buildGreenhouseGoal(plan: ApplicationPlan): string {
     "You are on a Greenhouse job posting page and must fill the application form accurately.",
     "",
     "Rules:",
-    "- Do NOT click the final Submit button. Stop at the final review step with the form filled.",
     "- If a cookie banner appears, dismiss it.",
     "- If a CAPTCHA/hCaptcha/recaptcha appears, stop and report blocked.",
     "- If required fields are missing, do not guess. Report missing required fields.",
+    "- After filling all required fields, click the Submit/Apply button to submit the application.",
     "",
     "Steps:",
     "1) Click 'Apply' or 'Apply for this job' to open the application form.",
@@ -42,6 +51,8 @@ export function buildGreenhouseGoal(plan: ApplicationPlan): string {
     `- Phone: ${p.phone || ""}`,
     `- Location: ${p.location || ""}`,
   ];
+  if (p.address) lines.push(`- Address: ${p.address}`);
+  if (p.date_of_birth) lines.push(`- Date of birth (or Age if only one field): ${p.date_of_birth}`);
 
   if (p.linkedin_url) lines.push(`- LinkedIn URL: ${p.linkedin_url}`);
   if (p.portfolio_url) lines.push(`- Portfolio/Website: ${p.portfolio_url}`);
@@ -59,6 +70,15 @@ export function buildGreenhouseGoal(plan: ApplicationPlan): string {
     lines.push("5) Cover letter upload (if field exists): download and upload from:", plan.cover_letter_url);
   }
 
+  if (plan.education && plan.education.length > 0) {
+    lines.push("");
+    lines.push("5b) Education: if the form has fields for Education, Degree, School, College, or Graduation year, fill them from these entries (use first entry for single fields):");
+    for (const e of plan.education) {
+      const parts = [e.degree, e.school, e.year].filter(Boolean);
+      if (parts.length) lines.push(`   - ${parts.join(", ")}`);
+    }
+  }
+
   if (answerEntries.length > 0) {
     lines.push("");
     lines.push("6) Additional questions: fill these by matching question text/label:");
@@ -69,7 +89,8 @@ export function buildGreenhouseGoal(plan: ApplicationPlan): string {
 
   lines.push("");
   lines.push("7) If there are any validation errors shown on the page (red text, 'required', etc.), collect them.");
-  lines.push("8) When you are at the final step and the Submit button is visible, STOP (do not click submit).");
+  lines.push("8) If the form has an Address field and you have an address value above, fill it. If it has Age or Date of birth, fill from the value above.");
+  lines.push("9) When all required fields are filled and the Submit/Apply button is visible, click it to submit the application.");
   lines.push("");
   lines.push("Return a single JSON object ONLY (no extra text) with this schema:");
   lines.push("{");

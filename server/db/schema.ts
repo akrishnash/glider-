@@ -19,6 +19,8 @@ export const profiles = sqliteTable("profiles", {
   fullName: text("full_name"),
   phone: text("phone"),
   location: text("location"),
+  address: text("address"),
+  dateOfBirth: text("date_of_birth"),
   linkedinUrl: text("linkedin_url"),
   portfolioUrl: text("portfolio_url"),
   summary: text("summary"),
@@ -26,11 +28,20 @@ export const profiles = sqliteTable("profiles", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 });
 
+export interface ResumeExtractJson {
+  name?: string;
+  email?: string;
+  phone?: string;
+  address?: string;
+  education?: { degree?: string; school?: string; year?: string }[];
+}
+
 export const resumes = sqliteTable("resumes", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   fileKey: text("file_key").notNull(),
   fileName: text("file_name").notNull(),
+  extract: text("extract", { mode: "json" }).$type<ResumeExtractJson | null>(),
   uploadedAt: integer("uploaded_at", { mode: "timestamp" }).notNull(),
 });
 

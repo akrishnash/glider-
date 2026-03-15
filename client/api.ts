@@ -120,6 +120,17 @@ export async function getJob(token: string, id: string) {
   return data;
 }
 
+export async function deleteJob(token: string, id: string) {
+  const res = await fetch(`${API}/jobs/${id}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok && res.status !== 204) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data?.error?.message || "Failed to delete job");
+  }
+}
+
 export async function getApplicationPlan(token: string, jobId: string) {
   const res = await fetch(`${API}/applications/plan`, {
     method: "POST",
@@ -140,6 +151,15 @@ export async function runApplications(token: string, jobIds: string[]) {
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || "Run failed");
   return data;
+}
+
+/** Start a run with live SSE stream. Returns the response; read res.body as a stream and parse "data:" lines as JSON. */
+export function runApplicationSSE(token: string, jobId: string): Promise<Response> {
+  return fetch(`${API}/applications/run-sse`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ job_id: jobId }),
+  });
 }
 
 export async function getApplications(token: string, params?: { status?: string; job_id?: string }) {
@@ -163,5 +183,40 @@ export async function getApplicationStats(token: string) {
   const res = await fetch(`${API}/applications/stats`, { headers: { Authorization: `Bearer ${token}` } });
   const data = await res.json();
   if (!res.ok) throw new Error(data?.error?.message || "Failed to load stats");
+  return data;
+}
+
+export async function logApplication(token: string, params: {
+  url: string;
+  company?: string;
+  position?: string;
+  status?: string;
+  source?: string;
+}) {
+  const res = await fetch(`${API}/applications/log`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify(params),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || "Failed to log application");
+  return data;
+}
+
+export async function updateApplicationStatus(token: string, id: string, status: string) {
+  const res = await fetch(`${API}/applications/${id}/status`, {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || "Failed to update status");
+  return data;
+}
+
+export async function exportProfile(token: string) {
+  const res = await fetch(`${API}/profile/export`, { headers: { Authorization: `Bearer ${token}` } });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || "Failed to export profile");
   return data;
 }

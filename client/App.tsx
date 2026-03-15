@@ -1,602 +1,865 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
+import { motion } from "framer-motion";
+import {
+  Loader2,
+  Save,
+  Upload,
+  Plus,
+  Trash2,
+  Zap,
+  Clock,
+  TrendingUp,
+  ExternalLink,
+  CheckCircle2,
+  ChevronDown,
+} from "lucide-react";
+import {
+  LineChart,
+  Line,
+  PieChart,
+  Pie,
+  Cell,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+} from "recharts";
 import * as api from "./api";
+import DashboardLayout from "./components/Dashboard/DashboardLayout";
+import Login from "./components/Auth/Login";
+import Register from "./components/Auth/Register";
 
 type User = { id: string; email: string } | null;
+type Tab = "profile" | "jobs" | "applications" | "analytics";
 
+// ─── shared input class ──────────────────────────────────────────────────────
+const INPUT =
+  "w-full px-4 py-3 bg-slate-700/50 border border-slate-600/50 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-violet-500/50 focus:ring-1 focus:ring-violet-500/50 transition";
+const CARD =
+  "bg-slate-800/40 backdrop-blur-xl border border-slate-700/50 rounded-xl";
+const BTN_PRIMARY =
+  "inline-flex items-center gap-2 px-5 py-2.5 bg-gradient-to-r from-violet-600 to-violet-500 text-white rounded-lg font-semibold hover:shadow-lg hover:shadow-violet-500/40 transition-all disabled:opacity-50 disabled:cursor-not-allowed";
+const BTN_OUTLINE =
+  "inline-flex items-center gap-2 px-4 py-2 border border-slate-600/60 text-slate-300 hover:text-white hover:border-slate-500 rounded-lg transition-all disabled:opacity-50";
+const BTN_DANGER =
+  "inline-flex items-center gap-2 px-4 py-2 border border-red-500/40 text-red-400 hover:bg-red-500/10 rounded-lg transition-all disabled:opacity-50";
+
+// ── status badge ──────────────────────────────────────────────────────────────
+const STATUS_STYLES: Record<string, { bg: string; text: string; dot: string }> = {
+  pending:       { bg: "bg-slate-500/20", text: "text-slate-400",  dot: "bg-slate-500" },
+  running:       { bg: "bg-amber-500/20",  text: "text-amber-400",  dot: "bg-amber-500" },
+  submitted:     { bg: "bg-green-500/20",  text: "text-green-400",  dot: "bg-green-500" },
+  failed:        { bg: "bg-red-500/20",    text: "text-red-400",    dot: "bg-red-500" },
+  manual_review: { bg: "bg-orange-500/20", text: "text-orange-400", dot: "bg-orange-500" },
+};
+function StatusBadge({ status }: { status: string }) {
+  const s = STATUS_STYLES[status] ?? STATUS_STYLES.pending;
+  return (
+    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${s.bg} ${s.text}`}>
+      <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
+      {status}
+    </span>
+  );
+}
+
+// ─── Root ────────────────────────────────────────────────────────────────────
 export default function App() {
   const [token, setToken] = useState<string | null>(() => localStorage.getItem("glider_token"));
   const [user, setUser] = useState<User>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [authMode, setAuthMode] = useState<"login" | "register">("login");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      let t = token;
-      if (!t) {
-        try {
-          const data = await api.demoLogin();
-          t = data.token;
-          if (t && !cancelled) {
-            localStorage.setItem("glider_token", t);
-            setToken(t);
-            setUser(data.user);
-          }
-        } catch (err) {
-          if (!cancelled) setError(err instanceof Error ? err.message : "Failed to start");
-        }
-      } else {
-        try {
-          const { user } = await api.me(t);
-          if (!cancelled) setUser(user);
-        } catch {
-          if (!cancelled) {
-            setToken(null);
-            localStorage.removeItem("glider_token");
-            const data = await api.demoLogin();
-            if (data.token) {
-              localStorage.setItem("glider_token", data.token);
-              setToken(data.token);
-              setUser(data.user);
-            }
-          }
-        }
-      }
-      if (!cancelled) setLoading(false);
-    })();
-    return () => { cancelled = true; };
+    if (!token) { setLoading(false); return; }
+    api.me(token)
+      .then(({ user }) => setUser(user))
+      .catch(() => {
+        setToken(null);
+        localStorage.removeItem("glider_token");
+      })
+      .finally(() => setLoading(false));
   }, [token]);
+
+  const handleAuth = (t: string) => {
+    localStorage.setItem("glider_token", t);
+    setToken(t);
+    setLoading(true);
+  };
+
+  const handleLogout = () => {
+    setToken(null);
+    setUser(null);
+    localStorage.removeItem("glider_token");
+  };
 
   if (loading) {
     return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#a1a1aa" }}>
-        Loading…
-      </div>
-    );
-  }
-
-  if (error && !token) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", padding: 24 }}>
-        <div style={{ textAlign: "center" }}>
-          <p style={{ color: "#f87171", marginBottom: 16 }}>{error}</p>
-          <button onClick={() => window.location.reload()} style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: "#3b82f6", color: "#fff" }}>
-            Retry
-          </button>
-        </div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950">
+        <Loader2 className="h-12 w-12 animate-spin text-violet-600" />
       </div>
     );
   }
 
   if (!user) {
-    return (
-      <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#a1a1aa" }}>
-        Loading…
-      </div>
+    return authMode === "login" ? (
+      <Login onSuccess={handleAuth} onToggleMode={() => setAuthMode("register")} />
+    ) : (
+      <Register onSuccess={handleAuth} onToggleMode={() => setAuthMode("login")} />
     );
   }
 
   return (
-    <Dashboard
-      token={token!}
-      user={user}
-      onLogout={() => { setToken(null); localStorage.removeItem("glider_token"); window.location.reload(); }}
-    />
+    <Dashboard token={token!} user={user} onLogout={handleLogout} />
   );
 }
 
+// ─── Dashboard shell ─────────────────────────────────────────────────────────
 function Dashboard({ token, user, onLogout }: { token: string; user: User; onLogout: () => void }) {
-  const [tab, setTab] = useState<"profile" | "jobs" | "applications">("jobs");
+  const [tab, setTab] = useState<Tab>("jobs");
   const [stats, setStats] = useState<{ total_runs: number; submitted: number; failed: number; running: number } | null>(null);
 
   useEffect(() => {
     if (!token) return;
-    api.getApplicationStats(token).then((s) => setStats(s)).catch(() => setStats(null));
-    const t = setInterval(() => api.getApplicationStats(token).then((s) => setStats(s)).catch(() => {}), 20000);
+    api.getApplicationStats(token).then(setStats).catch(() => {});
+    const t = setInterval(() => api.getApplicationStats(token).then(setStats).catch(() => {}), 20000);
     return () => clearInterval(t);
   }, [token]);
 
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-      <header style={{ padding: "16px 24px", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
-        <h1 style={{ fontSize: "1.25rem", margin: 0 }}>Glider</h1>
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          {stats != null && (
-            <span style={{ fontSize: 13, color: "#a1a1aa" }} title="TinyFish runs started (≈ credits used)">
-              {stats.total_runs} run{stats.total_runs !== 1 ? "s" : ""}
-              {stats.submitted > 0 && <span style={{ color: "#22c55e", marginLeft: 6 }}>✓ {stats.submitted}</span>}
-              {stats.running > 0 && <span style={{ color: "#eab308", marginLeft: 4 }}>⋯ {stats.running}</span>}
-            </span>
-          )}
-          <span style={{ color: "#a1a1aa" }}>{user?.email}</span>
-          <button onClick={onLogout} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid #27272a", background: "transparent", color: "#e4e4e7" }}>
-            Log out
-          </button>
-        </div>
-      </header>
-      <nav style={{ display: "flex", gap: 8, padding: "12px 24px", borderBottom: "1px solid #27272a" }}>
-        {(["profile", "jobs", "applications"] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            style={{
-              padding: "8px 16px",
-              borderRadius: 6,
-              border: "none",
-              background: tab === t ? "#27272a" : "transparent",
-              color: "#e4e4e7",
-              textTransform: "capitalize",
-            }}
-          >
-            {t}
-          </button>
-        ))}
-      </nav>
-      <main style={{ flex: 1, padding: 24 }}>
-        {tab === "profile" && <ProfileTab token={token} />}
-        {tab === "jobs" && <JobsTab token={token} onGoApplications={() => setTab("applications")} />}
-        {tab === "applications" && <ApplicationsTab token={token} />}
-      </main>
-    </div>
+    <DashboardLayout
+      activeTab={tab}
+      onTabChange={setTab}
+      userEmail={user?.email ?? ""}
+      onLogout={onLogout}
+      stats={stats ?? undefined}
+    >
+      {tab === "jobs"         && <JobsTab         token={token} onGoApplications={() => setTab("applications")} />}
+      {tab === "applications" && <ApplicationsTab token={token} />}
+      {tab === "analytics"    && <AnalyticsTab    token={token} />}
+      {tab === "profile"      && <ProfileTab      token={token} />}
+    </DashboardLayout>
   );
 }
 
+// ─── Profile Tab ─────────────────────────────────────────────────────────────
 function ProfileTab({ token }: { token: string }) {
   const [profile, setProfile] = useState<Record<string, string> | null>(null);
   const [prefs, setPrefs] = useState<Record<string, unknown> | null>(null);
   const [resumes, setResumes] = useState<{ id: string; file_name: string }[]>([]);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const [p, pr, r] = await Promise.all([api.getProfile(token), api.getPreferences(token), api.getResumes(token)]);
-        setProfile(p.profile ? { full_name: p.profile.full_name ?? "", phone: p.profile.phone ?? "", location: p.profile.location ?? "", linkedin_url: p.profile.linkedin_url ?? "", portfolio_url: p.profile.portfolio_url ?? "", summary: p.profile.summary ?? "" } : {});
+        setProfile(p.profile ? {
+          full_name: p.profile.full_name ?? "", phone: p.profile.phone ?? "",
+          location: p.profile.location ?? "", address: p.profile.address ?? "",
+          date_of_birth: p.profile.date_of_birth ?? "", linkedin_url: p.profile.linkedin_url ?? "",
+          portfolio_url: p.profile.portfolio_url ?? "", summary: p.profile.summary ?? "",
+        } : {});
         setPrefs(pr.preferences ?? {});
         setResumes(r.resumes ?? []);
-      } catch {
-        setProfile({});
-        setPrefs({});
-      }
+      } catch { setProfile({}); setPrefs({}); }
     })();
   }, [token]);
 
   const saveProfile = async () => {
     if (!profile) return;
     setSaving(true);
-    try {
-      await api.updateProfile(token, profile);
-    } finally {
-      setSaving(false);
-    }
+    try { await api.updateProfile(token, profile); } finally { setSaving(false); }
   };
-
   const savePrefs = async () => {
     if (!prefs) return;
     setSaving(true);
-    try {
-      await api.updatePreferences(token, prefs);
-    } finally {
-      setSaving(false);
-    }
+    try { await api.updatePreferences(token, prefs); } finally { setSaving(false); }
   };
 
-  if (profile === null) return <p>Loading…</p>;
+  const profileFields: { key: string; label: string; type?: string; placeholder?: string }[] = [
+    { key: "full_name", label: "Full Name" },
+    { key: "phone", label: "Phone", type: "tel" },
+    { key: "location", label: "Location / City" },
+    { key: "address", label: "Address" },
+    { key: "date_of_birth", label: "Date of Birth", placeholder: "e.g. 1990-01-15" },
+    { key: "linkedin_url", label: "LinkedIn URL", type: "url" },
+    { key: "portfolio_url", label: "Portfolio URL", type: "url" },
+  ];
+
+  if (profile === null) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <Loader2 className="h-8 w-8 animate-spin text-violet-600" />
+      </div>
+    );
+  }
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <h2 style={{ marginTop: 0 }}>Profile</h2>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 24 }}>
-        {(["full_name", "phone", "location", "linkedin_url", "portfolio_url"] as const).map((k) => (
-          <label key={k} style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-            <span style={{ color: "#a1a1aa", textTransform: "capitalize" }}>{k.replace(/_/g, " ")}</span>
-            <input
-              value={profile[k] ?? ""}
-              onChange={(e) => setProfile((p) => ({ ...p!, [k]: e.target.value }))}
-              style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #27272a", background: "#18181b", color: "#fff" }}
-            />
-          </label>
-        ))}
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ color: "#a1a1aa" }}>Summary</span>
+    <div className="space-y-8">
+      {/* header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-white">Profile Setup</h1>
+          <p className="text-slate-400 mt-1">Manage your professional information used to fill applications</p>
+        </div>
+        <motion.button
+          whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }}
+          onClick={saveProfile} disabled={saving}
+          className={BTN_PRIMARY}
+        >
+          {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+          {saving ? "Saving…" : "Save Profile"}
+        </motion.button>
+      </div>
+
+      {/* personal info */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} className={`${CARD} p-6 sm:p-8`}>
+        <h2 className="text-lg font-semibold text-white mb-6">Personal Information</h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {profileFields.map((f, i) => (
+            <motion.div key={f.key} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.04 }}>
+              <label className="block text-sm font-medium text-slate-300 mb-2">{f.label}</label>
+              <input
+                type={f.type ?? "text"}
+                value={profile[f.key] ?? ""}
+                onChange={(e) => setProfile((p) => ({ ...p!, [f.key]: e.target.value }))}
+                placeholder={f.placeholder}
+                className={INPUT}
+              />
+            </motion.div>
+          ))}
+        </div>
+        <div className="mt-6">
+          <label className="block text-sm font-medium text-slate-300 mb-2">Professional Summary</label>
           <textarea
             value={profile.summary ?? ""}
             onChange={(e) => setProfile((p) => ({ ...p!, summary: e.target.value }))}
-            rows={3}
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #27272a", background: "#18181b", color: "#fff", resize: "vertical" }}
+            rows={4}
+            placeholder="Brief summary used in cover letters and introductions…"
+            className={`${INPUT} resize-none`}
           />
-        </label>
-        <button onClick={saveProfile} disabled={saving} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#3b82f6", color: "#fff", alignSelf: "flex-start" }}>
-          {saving ? "Saving…" : "Save profile"}
-        </button>
-      </div>
+        </div>
+      </motion.div>
 
-      <h3>Resume</h3>
-      <div style={{ marginBottom: 24 }}>
-        {resumes.length > 0 && <ul style={{ margin: "0 0 12px", paddingLeft: 20 }}>{resumes.map((r) => <li key={r.id}>{r.file_name}</li>)}</ul>}
-        <input
-          type="file"
-          accept=".pdf,.doc,.docx"
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-            setUploading(true);
-            try {
-              await api.uploadResume(token, file);
-              const r = await api.getResumes(token);
-              setResumes(r.resumes ?? []);
-            } finally {
-              setUploading(false);
-              e.target.value = "";
-            }
-          }}
-        />
-        {uploading && <span style={{ marginLeft: 8 }}>Uploading…</span>}
-      </div>
+      {/* resume */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className={`${CARD} p-6 sm:p-8`}>
+        <h2 className="text-lg font-semibold text-white mb-2">Resume</h2>
+        <p className="text-slate-400 text-sm mb-6">Upload a PDF — name, phone, address and education are extracted to pre-fill fields above.</p>
+        {resumes.length > 0 && (
+          <ul className="mb-4 space-y-1">
+            {resumes.map((r) => (
+              <li key={r.id} className="flex items-center gap-2 text-sm text-slate-300">
+                <div className="w-2 h-2 rounded-full bg-green-500" />
+                {r.file_name}
+              </li>
+            ))}
+          </ul>
+        )}
+        <label className={`${BTN_OUTLINE} cursor-pointer`}>
+          {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+          {uploading ? "Uploading…" : "Upload PDF"}
+          <input
+            type="file" accept=".pdf,.doc,.docx" className="hidden"
+            onChange={async (e) => {
+              const file = e.target.files?.[0];
+              if (!file) return;
+              setUploadMsg(null); setUploading(true);
+              try {
+                const data = await api.uploadResume(token, file);
+                const r = await api.getResumes(token);
+                setResumes(r.resumes ?? []);
+                if (data.extracted && data.extracted_fields?.length) {
+                  const fields = (data.extracted_fields as string[]).join(", ");
+                  setUploadMsg({ ok: true, text: `Extracted: ${fields}. Review fields above.` });
+                  const p = await api.getProfile(token);
+                  if (p.profile) setProfile({
+                    full_name: p.profile.full_name ?? "", phone: p.profile.phone ?? "",
+                    location: p.profile.location ?? "", address: p.profile.address ?? "",
+                    date_of_birth: p.profile.date_of_birth ?? "", linkedin_url: p.profile.linkedin_url ?? "",
+                    portfolio_url: p.profile.portfolio_url ?? "", summary: p.profile.summary ?? "",
+                  });
+                  setTimeout(() => setUploadMsg(null), 8000);
+                }
+              } catch (err) {
+                setUploadMsg({ ok: false, text: err instanceof Error ? err.message : "Upload failed" });
+              } finally { setUploading(false); e.target.value = ""; }
+            }}
+          />
+        </label>
+        {uploadMsg && (
+          <div className={`mt-4 p-3 rounded-lg text-sm border ${uploadMsg.ok
+            ? "bg-green-500/10 border-green-500/40 text-green-400"
+            : "bg-red-500/10 border-red-500/40 text-red-400"}`}>
+            {uploadMsg.text}
+          </div>
+        )}
+      </motion.div>
 
-      <h3>Preferences (roles, locations)</h3>
-      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ color: "#a1a1aa" }}>Roles (comma-separated)</span>
-          <input
-            value={Array.isArray(prefs?.roles) ? (prefs.roles as string[]).join(", ") : ""}
-            onChange={(e) => setPrefs((p) => ({ ...p!, roles: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }))}
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #27272a", background: "#18181b", color: "#fff" }}
-          />
-        </label>
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          <span style={{ color: "#a1a1aa" }}>Locations (comma-separated)</span>
-          <input
-            value={Array.isArray(prefs?.locations) ? (prefs.locations as string[]).join(", ") : ""}
-            onChange={(e) => setPrefs((p) => ({ ...p!, locations: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }))}
-            style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid #27272a", background: "#18181b", color: "#fff" }}
-          />
-        </label>
-        <button onClick={savePrefs} disabled={saving} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#3b82f6", color: "#fff", alignSelf: "flex-start" }}>
-          Save preferences
-        </button>
-      </div>
+      {/* preferences */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className={`${CARD} p-6 sm:p-8`}>
+        <h2 className="text-lg font-semibold text-white mb-6">Job Preferences</h2>
+        <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Target Roles <span className="text-slate-500 font-normal">(comma-separated)</span></label>
+            <input
+              value={Array.isArray(prefs?.roles) ? (prefs.roles as string[]).join(", ") : ""}
+              onChange={(e) => setPrefs((p) => ({ ...p!, roles: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }))}
+              placeholder="Software Engineer, Frontend Developer"
+              className={INPUT}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-300 mb-2">Preferred Locations <span className="text-slate-500 font-normal">(comma-separated)</span></label>
+            <input
+              value={Array.isArray(prefs?.locations) ? (prefs.locations as string[]).join(", ") : ""}
+              onChange={(e) => setPrefs((p) => ({ ...p!, locations: e.target.value.split(",").map((s) => s.trim()).filter(Boolean) }))}
+              placeholder="San Francisco, Remote"
+              className={INPUT}
+            />
+          </div>
+          <motion.button whileHover={{ scale: 1.03 }} whileTap={{ scale: 0.97 }} onClick={savePrefs} disabled={saving} className={BTN_PRIMARY}>
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+            Save Preferences
+          </motion.button>
+        </div>
+      </motion.div>
     </div>
   );
 }
 
+// ─── Jobs Tab ─────────────────────────────────────────────────────────────────
 function JobsTab({ token, onGoApplications }: { token: string; onGoApplications: () => void }) {
   const [jobs, setJobs] = useState<{ id: string; source_url: string; platform: string; company_name?: string; job_title?: string }[]>([]);
   const [urls, setUrls] = useState("");
   const [loading, setLoading] = useState(true);
   const [ingesting, setIngesting] = useState(false);
-  const [message, setMessage] = useState<{ type: "ok" | "err"; text: string } | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [markingId, setMarkingId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
-    try {
-      const data = await api.getJobs(token);
-      setJobs(data.jobs ?? []);
-    } finally {
-      setLoading(false);
-    }
+    try { const data = await api.getJobs(token); setJobs(data.jobs ?? []); }
+    finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    load();
-  }, [token]);
+  useEffect(() => { load(); }, [token]);
 
   const ingest = async () => {
     const list = urls.split("\n").map((s) => s.trim()).filter(Boolean);
-    if (list.length === 0) return;
-    setIngesting(true);
-    setMessage(null);
+    if (!list.length) return;
+    setIngesting(true); setMessage(null);
     try {
       await api.ingestJobs(token, list);
-      setUrls("");
-      await load();
-      setMessage({ type: "ok", text: `Ingested ${list.length} URL${list.length === 1 ? "" : "s"}.` });
-    } finally {
-      setIngesting(false);
-    }
+      setUrls(""); await load();
+      setMessage({ ok: true, text: `${list.length} URL${list.length > 1 ? "s" : ""} added to queue.` });
+    } finally { setIngesting(false); }
   };
 
-  const [runningFor, setRunningFor] = useState<Set<string>>(new Set());
-  const runOne = async (jobId: string) => {
-    setRunningFor((s) => new Set(s).add(jobId));
-    setMessage(null);
+  const deleteJob = async (jobId: string) => {
+    if (!window.confirm("Remove this job?")) return;
+    setDeletingId(jobId); setMessage(null);
+    try { await api.deleteJob(token, jobId); await load(); setMessage({ ok: true, text: "Job removed." }); }
+    catch (err) { setMessage({ ok: false, text: err instanceof Error ? err.message : "Delete failed" }); }
+    finally { setDeletingId(null); }
+  };
+
+  const markApplied = async (j: typeof jobs[0]) => {
+    setMarkingId(j.id); setMessage(null);
     try {
-      const resp = await api.runApplications(token, [jobId]);
-      await load();
-      const errs = resp?.errors?.length ? resp.errors.map((e: any) => e.message).join(" | ") : null;
-      if (errs) {
-        setMessage({ type: "err", text: errs });
-      } else {
-        setMessage({ type: "ok", text: "Glide started. Check Applications for status." });
-        onGoApplications();
-      }
-    } finally {
-      setRunningFor((s) => {
-        const n = new Set(s);
-        n.delete(jobId);
-        return n;
+      await api.logApplication(token, {
+        url: j.source_url,
+        company: j.company_name,
+        position: j.job_title,
+        status: "submitted",
+        source: "manual",
       });
-    }
+      setMessage({ ok: true, text: `Logged application for ${j.company_name ?? j.job_title ?? "job"}.` });
+      onGoApplications();
+    } catch (err) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : "Failed to log" });
+    } finally { setMarkingId(null); }
   };
 
   return (
-    <div>
-      <h2 style={{ marginTop: 0 }}>Jobs</h2>
-      <p style={{ color: "#a1a1aa", marginBottom: 16 }}>Paste Greenhouse (or other) job URLs, one per line. Then click Ingest. After that, use &quot;Glide&quot; to run the application agent.</p>
+    <div className="space-y-8">
+      {/* header */}
+      <div>
+        <h1 className="text-3xl font-bold text-white">Job Queue</h1>
+        <p className="text-slate-400 mt-1">
+          Add Greenhouse or Lever job URLs. Click <span className="text-violet-400 font-medium">Open</span> to go to the page — the extension will auto-fill the form. Then click <span className="text-green-400 font-medium">Mark Applied</span> to log it.
+        </p>
+      </div>
+
       {message && (
-        <div
-          style={{
-            maxWidth: 560,
-            marginBottom: 12,
-            padding: "10px 12px",
-            borderRadius: 8,
-            border: "1px solid " + (message.type === "ok" ? "#14532d" : "#7f1d1d"),
-            background: message.type === "ok" ? "#052e16" : "#450a0a",
-            color: message.type === "ok" ? "#bbf7d0" : "#fecaca",
-          }}
-        >
+        <div className={`p-3 rounded-lg text-sm border ${message.ok
+          ? "bg-green-500/10 border-green-500/40 text-green-400"
+          : "bg-red-500/10 border-red-500/40 text-red-400"}`}>
           {message.text}
         </div>
       )}
-      <textarea
-        placeholder="https://boards.greenhouse.io/company/jobs/123"
-        value={urls}
-        onChange={(e) => setUrls(e.target.value)}
-        rows={4}
-        style={{ width: "100%", maxWidth: 560, padding: "8px 12px", marginBottom: 12, borderRadius: 8, border: "1px solid #27272a", background: "#18181b", color: "#fff", resize: "vertical" }}
-      />
-      <button onClick={ingest} disabled={ingesting} style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#22c55e", color: "#fff", marginBottom: 24 }}>
-        {ingesting ? "Ingesting…" : "Ingest URLs"}
-      </button>
 
-      {loading ? <p>Loading jobs…</p> : (
-        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-          {jobs.map((j) => (
-            <li key={j.id} style={{ padding: "12px 0", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-              <div>
-                <a href={j.source_url} target="_blank" rel="noopener noreferrer" style={{ fontWeight: 500 }}>{j.job_title || j.source_url}</a>
-                {j.company_name && <span style={{ color: "#a1a1aa", marginLeft: 8 }}>{j.company_name}</span>}
-                <span style={{ marginLeft: 8, fontSize: 12, color: "#71717a" }}>{j.platform}</span>
-              </div>
-              <button
-                onClick={() => runOne(j.id)}
-                disabled={runningFor.has(j.id)}
-                style={{ padding: "6px 12px", borderRadius: 6, border: "none", background: "#3b82f6", color: "#fff" }}
-              >
-                {runningFor.has(j.id) ? "Running…" : "Glide"}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {!loading && jobs.length === 0 && <p style={{ color: "#71717a" }}>No jobs yet. Ingest some URLs above.</p>}
+      {/* how it works banner */}
+      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} className="flex items-start gap-4 p-4 rounded-xl bg-violet-600/10 border border-violet-500/20">
+        <div className="flex-shrink-0 w-8 h-8 bg-violet-600/20 rounded-full flex items-center justify-center text-base">⚡</div>
+        <div className="text-sm text-slate-300">
+          <p className="font-medium text-white mb-1">How the extension works</p>
+          <ol className="list-decimal list-inside space-y-1 text-slate-400">
+            <li>Click <strong className="text-white">Open</strong> — the job page opens in a new tab</li>
+            <li>The extension detects the Greenhouse / Lever form and auto-fills it from your profile</li>
+            <li>Review unfilled fields (highlighted in yellow), solve CAPTCHA if any</li>
+            <li>Submit the form, then come back and click <strong className="text-white">Mark Applied</strong></li>
+          </ol>
+        </div>
+      </motion.div>
+
+      {/* ingest form */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className={`${CARD} p-6`}>
+        <h2 className="text-base font-semibold text-white mb-4">Add Job URLs</h2>
+        <textarea
+          value={urls}
+          onChange={(e) => setUrls(e.target.value)}
+          rows={4}
+          placeholder={"https://boards.greenhouse.io/company/jobs/123\nhttps://jobs.lever.co/company/456"}
+          className={`${INPUT} resize-none mb-4`}
+        />
+        <button onClick={ingest} disabled={ingesting || !urls.trim()} className={BTN_PRIMARY}>
+          {ingesting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {ingesting ? "Adding…" : "Add to Queue"}
+        </button>
+      </motion.div>
+
+      {/* job list */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }} className={`${CARD} overflow-hidden`}>
+        <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">Queue</h2>
+          <span className="text-xs text-slate-500">{jobs.length} job{jobs.length !== 1 ? "s" : ""}</span>
+        </div>
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-violet-500" />
+          </div>
+        ) : jobs.length === 0 ? (
+          <div className="py-16 text-center text-slate-500 text-sm">No jobs yet. Paste URLs above and click Add to Queue.</div>
+        ) : (
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-slate-700/50">
+                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Job</th>
+                <th className="px-6 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider hidden md:table-cell">Platform</th>
+                <th className="px-6 py-3 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {jobs.map((j, idx) => (
+                <motion.tr
+                  key={j.id}
+                  initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.04 }}
+                  className="border-b border-slate-700/30 hover:bg-slate-700/20 transition group"
+                >
+                  <td className="px-6 py-4">
+                    <p className="font-medium text-white">{j.job_title || "Untitled role"}</p>
+                    {j.company_name && <p className="text-xs text-slate-400 mt-0.5">{j.company_name}</p>}
+                    <p className="text-xs text-slate-600 mt-0.5 truncate max-w-xs">{j.source_url}</p>
+                  </td>
+                  <td className="px-6 py-4 hidden md:table-cell">
+                    <span className="text-xs text-slate-500 bg-slate-700/50 px-2 py-0.5 rounded-full">{j.platform}</span>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2 justify-end opacity-0 group-hover:opacity-100 transition">
+                      {/* Open in new tab — extension auto-fills */}
+                      <motion.a
+                        whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}
+                        href={j.source_url} target="_blank" rel="noopener noreferrer"
+                        className={`${BTN_OUTLINE} text-xs px-3 py-1.5`}
+                        title="Open job page — extension will auto-fill"
+                      >
+                        <ExternalLink className="h-3 w-3" /> Open
+                      </motion.a>
+                      {/* Mark Applied */}
+                      <motion.button
+                        whileHover={{ scale: 1.06 }} whileTap={{ scale: 0.94 }}
+                        onClick={() => markApplied(j)}
+                        disabled={markingId === j.id}
+                        className={`${BTN_PRIMARY} text-xs px-3 py-1.5`}
+                        title="Log as applied"
+                      >
+                        {markingId === j.id
+                          ? <><Loader2 className="h-3 w-3 animate-spin" /> Logging…</>
+                          : <><CheckCircle2 className="h-3 w-3" /> Mark Applied</>}
+                      </motion.button>
+                      <motion.button
+                        whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.93 }}
+                        onClick={() => deleteJob(j.id)}
+                        disabled={deletingId === j.id}
+                        className="p-1.5 text-red-400 hover:bg-red-500/20 rounded-lg transition"
+                        title="Remove job"
+                      >
+                        {deletingId === j.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                      </motion.button>
+                    </div>
+                  </td>
+                </motion.tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </motion.div>
     </div>
   );
 }
 
+// ─── Applications Tab ────────────────────────────────────────────────────────
+const STATUS_TRANSITIONS: Record<string, { label: string; next: string; color: string }[]> = {
+  pending:       [{ label: "Mark Applied",  next: "submitted",     color: "text-green-400 hover:bg-green-500/10" }, { label: "Reject",  next: "failed",     color: "text-red-400 hover:bg-red-500/10" }],
+  submitted:     [{ label: "Interview →",   next: "manual_review", color: "text-cyan-400 hover:bg-cyan-500/10" },   { label: "Reject",  next: "failed",     color: "text-red-400 hover:bg-red-500/10" }],
+  manual_review: [{ label: "Reopen",        next: "submitted",     color: "text-violet-400 hover:bg-violet-500/10" }],
+  failed:        [{ label: "Reopen",        next: "pending",       color: "text-violet-400 hover:bg-violet-500/10" }],
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  pending: "Pending",
+  submitted: "Applied",
+  manual_review: "Interview",
+  failed: "Rejected",
+};
+
 function ApplicationsTab({ token }: { token: string }) {
-  const [apps, setApps] = useState<{ id: string; job_id: string; status: string; streaming_url?: string | null; submitted_at?: number; created_at: number }[]>([]);
+  type AppRow = { id: string; job_id: string; status: string; created_at: number; job?: { source_url: string; company_name?: string; job_title?: string } };
+  const [apps, setApps] = useState<AppRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [jobsMap, setJobsMap] = useState<Record<string, { job_title?: string; company_name?: string; source_url: string }>>({});
-  const [watchUrl, setWatchUrl] = useState<string | null>(null);
-  const [detailsFor, setDetailsFor] = useState<string | null>(null);
-  const [details, setDetails] = useState<any | null>(null);
-  const [detailsLoading, setDetailsLoading] = useState(false);
-  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [logForm, setLogForm] = useState({ url: "", company: "", position: "" });
+  const [logging, setLogging] = useState(false);
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [statusMenuId, setStatusMenuId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const [data, jobsData] = await Promise.all([api.getApplications(token), api.getJobs(token)]);
+      const [data, jd] = await Promise.all([api.getApplications(token), api.getJobs(token)]);
       setApps(data.applications ?? []);
       const map: Record<string, { job_title?: string; company_name?: string; source_url: string }> = {};
-      for (const j of jobsData.jobs ?? []) {
-        map[j.id] = { job_title: j.job_title, company_name: j.company_name, source_url: j.source_url };
-      }
+      for (const j of jd.jobs ?? []) map[j.id] = { job_title: j.job_title, company_name: j.company_name, source_url: j.source_url };
       setJobsMap(map);
-    } finally {
-      setLoading(false);
-    }
+    } finally { setLoading(false); }
   };
 
-  useEffect(() => {
-    load();
-    const t = setInterval(load, 15000);
-    return () => clearInterval(t);
-  }, [token]);
+  useEffect(() => { load(); }, [token]);
 
-  useEffect(() => {
-    if (!detailsFor) return;
-    setDetailsLoading(true);
-    setDetails(null);
-    setDetailsError(null);
-    api
-      .getApplication(token, detailsFor)
-      .then((d) => setDetails(d?.application ?? null))
-      .catch((e) => setDetailsError(e instanceof Error ? e.message : "Failed to load details"))
-      .finally(() => setDetailsLoading(false));
-  }, [token, detailsFor]);
+  const updateStatus = async (id: string, newStatus: string) => {
+    setUpdatingId(id); setStatusMenuId(null);
+    try { await api.updateApplicationStatus(token, id, newStatus); await load(); }
+    catch (err) { setMessage({ ok: false, text: err instanceof Error ? err.message : "Update failed" }); }
+    finally { setUpdatingId(null); }
+  };
 
-  if (loading && apps.length === 0) return <p>Loading applications…</p>;
+  const logApplication = async () => {
+    if (!logForm.url.trim().startsWith("http")) {
+      setMessage({ ok: false, text: "Please enter a valid job URL." }); return;
+    }
+    setLogging(true); setMessage(null);
+    try {
+      await api.logApplication(token, {
+        url: logForm.url.trim(),
+        company: logForm.company.trim() || undefined,
+        position: logForm.position.trim() || undefined,
+        source: "manual",
+      });
+      setLogForm({ url: "", company: "", position: "" });
+      await load();
+      setMessage({ ok: true, text: "Application logged." });
+    } catch (err) {
+      setMessage({ ok: false, text: err instanceof Error ? err.message : "Failed" });
+    } finally { setLogging(false); }
+  };
 
-  const statusColor: Record<string, string> = {
-    pending: "#71717a",
-    running: "#eab308",
-    submitted: "#22c55e",
-    failed: "#ef4444",
-    manual_review: "#f97316",
+  const stats = {
+    total: apps.length,
+    applied: apps.filter((a) => a.status === "submitted").length,
+    interview: apps.filter((a) => a.status === "manual_review").length,
   };
 
   return (
-    <div>
-      <h2 style={{ marginTop: 0 }}>Applications</h2>
-      <p style={{ color: "#a1a1aa", marginBottom: 16 }}>Status of your Glider runs. Each run uses TinyFish credits. Polls every 15s.</p>
-      {detailsFor && (
-        <div style={{ marginBottom: 16, border: "1px solid #27272a", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#18181b", borderBottom: "1px solid #27272a" }}>
-            <div style={{ color: "#e4e4e7", fontWeight: 600 }}>Review</div>
-            <button onClick={() => { setDetailsFor(null); setDetails(null); setDetailsError(null); }} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #27272a", background: "transparent", color: "#e4e4e7" }}>
-              Close
-            </button>
-          </div>
-          <div style={{ padding: 12 }}>
-            {detailsLoading && <p style={{ color: "#a1a1aa", margin: 0 }}>Loading details…</p>}
-            {detailsError && <p style={{ color: "#f87171", margin: 0 }}>{detailsError}</p>}
-            {details && (() => {
-              const report = (details.result?.result ?? details.result ?? {}) as any;
-              const filled: { label: string; value_preview: string }[] =
-                Array.isArray(report.filled_fields) ? report.filled_fields : [];
-              const missing: { label: string; selector_hint?: string }[] =
-                Array.isArray(report.missing_required) ? report.missing_required : [];
+    <div className="space-y-8" onClick={() => setStatusMenuId(null)}>
+      <div>
+        <h1 className="text-3xl font-bold text-white">Applications</h1>
+        <p className="text-slate-400 mt-1">Track every application you submit via the extension or manually.</p>
+      </div>
 
-              const copy = (text: string) => {
-                if (!text) return;
-                if (navigator.clipboard?.writeText) {
-                  navigator.clipboard.writeText(text).catch(() => {});
-                }
-              };
-
-              return (
-                <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-                  {details?.result?.streamingUrl && (
-                    <div style={{ border: "1px solid #27272a", borderRadius: 10, overflow: "hidden" }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#09090b", borderBottom: "1px solid #27272a" }}>
-                        <div style={{ color: "#e4e4e7", fontWeight: 600 }}>Live run</div>
-                        <a href={details.result.streamingUrl} target="_blank" rel="noopener noreferrer">Open in new tab</a>
-                      </div>
-                      <iframe src={details.result.streamingUrl} style={{ width: "100%", height: 520, border: "none", background: "#000" }} />
-                    </div>
-                  )}
-
-                  <div style={{ border: "1px solid #27272a", borderRadius: 10, padding: 12, background: "#09090b" }}>
-                    <div style={{ color: "#e4e4e7", fontWeight: 600, marginBottom: 8 }}>Filled fields</div>
-                    {filled.length === 0 ? (
-                      <p style={{ color: "#71717a", margin: 0 }}>Agent did not fill any fields.</p>
-                    ) : (
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                        <thead>
-                          <tr>
-                            <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #27272a" }}>Label</th>
-                            <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #27272a" }}>Value</th>
-                            <th style={{ width: 60, padding: "4px 6px", borderBottom: "1px solid #27272a" }}></th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filled.map((f, idx) => (
-                            <tr key={idx}>
-                              <td style={{ padding: "4px 6px", borderBottom: "1px solid #27272a" }}>{f.label}</td>
-                              <td style={{ padding: "4px 6px", borderBottom: "1px solid #27272a", color: "#a1a1aa" }}>{f.value_preview}</td>
-                              <td style={{ padding: "4px 6px", borderBottom: "1px solid #27272a" }}>
-                                <button
-                                  onClick={() => copy(f.value_preview)}
-                                  style={{ padding: "2px 6px", borderRadius: 999, border: "1px solid #27272a", background: "transparent", color: "#e4e4e7", fontSize: 10 }}
-                                >
-                                  Copy
-                                </button>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-
-                  <div style={{ border: "1px solid #27272a", borderRadius: 10, padding: 12, background: "#09090b" }}>
-                    <div style={{ color: "#e4e4e7", fontWeight: 600, marginBottom: 8 }}>Missing required</div>
-                    {missing.length === 0 ? (
-                      <p style={{ color: "#22c55e", margin: 0 }}>No missing required fields detected.</p>
-                    ) : (
-                      <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-                        <thead>
-                          <tr>
-                            <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #27272a" }}>Label</th>
-                            <th style={{ textAlign: "left", padding: "4px 6px", borderBottom: "1px solid #27272a" }}>Hint</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {missing.map((m, idx) => (
-                            <tr key={idx}>
-                              <td style={{ padding: "4px 6px", borderBottom: "1px solid #27272a" }}>{m.label}</td>
-                              <td style={{ padding: "4px 6px", borderBottom: "1px solid #27272a", color: "#a1a1aa" }}>{m.selector_hint ?? ""}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-
-                  <div style={{ border: "1px solid #27272a", borderRadius: 10, padding: 12, background: "#09090b" }}>
-                    <div style={{ color: "#e4e4e7", fontWeight: 600, marginBottom: 8 }}>Raw agent JSON</div>
-                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "#a1a1aa", fontSize: 12 }}>
-                      {JSON.stringify(report, null, 2)}
-                    </pre>
-                  </div>
-
-                  <div style={{ border: "1px solid #27272a", borderRadius: 10, padding: 12, background: "#09090b" }}>
-                    <div style={{ color: "#e4e4e7", fontWeight: 600, marginBottom: 8 }}>Plan snapshot</div>
-                    <pre style={{ margin: 0, whiteSpace: "pre-wrap", wordBreak: "break-word", color: "#a1a1aa", fontSize: 12 }}>
-                      {JSON.stringify(details.plan_snapshot ?? {}, null, 2)}
-                    </pre>
-                  </div>
-                </div>
-              );
-            })()}
-          </div>
+      {message && (
+        <div className={`p-3 rounded-lg text-sm border ${message.ok
+          ? "bg-green-500/10 border-green-500/40 text-green-400"
+          : "bg-red-500/10 border-red-500/40 text-red-400"}`}>
+          {message.text}
         </div>
       )}
-      {watchUrl && (
-        <div style={{ marginBottom: 16, border: "1px solid #27272a", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#18181b", borderBottom: "1px solid #27272a" }}>
-            <div style={{ color: "#e4e4e7", fontWeight: 600 }}>Live run</div>
-            <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <a href={watchUrl} target="_blank" rel="noopener noreferrer">Open in new tab</a>
-              <button onClick={() => setWatchUrl(null)} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid #27272a", background: "transparent", color: "#e4e4e7" }}>
-                Close
-              </button>
-            </div>
-          </div>
-          <iframe src={watchUrl} style={{ width: "100%", height: 560, border: "none", background: "#000" }} />
+
+      {/* stat cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { label: "Total",     value: stats.total,     color: "from-violet-600 to-violet-500" },
+          { label: "Applied",   value: stats.applied,   color: "from-green-600 to-green-500" },
+          { label: "Interview", value: stats.interview,  color: "from-cyan-600 to-cyan-500" },
+        ].map((s, i) => (
+          <motion.div key={i} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
+            className={`${CARD} p-6 relative overflow-hidden hover:border-slate-600/50 transition`}>
+            <div className="absolute inset-0 bg-gradient-to-br from-violet-600/5 to-cyan-600/5" />
+            <p className="text-slate-400 text-sm">{s.label}</p>
+            <p className={`text-4xl font-bold mt-2 bg-gradient-to-r ${s.color} bg-clip-text text-transparent`}>{s.value}</p>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* manual log form */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }} className={`${CARD} p-6`}>
+        <h2 className="text-base font-semibold text-white mb-4">Log an Application</h2>
+        <p className="text-sm text-slate-400 mb-4">
+          Already applied via the extension? Log it here, or add applications from other platforms.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+          <input
+            value={logForm.url}
+            onChange={(e) => setLogForm((f) => ({ ...f, url: e.target.value }))}
+            placeholder="Job URL (required)"
+            className={INPUT}
+          />
+          <input
+            value={logForm.company}
+            onChange={(e) => setLogForm((f) => ({ ...f, company: e.target.value }))}
+            placeholder="Company (optional)"
+            className={INPUT}
+          />
+          <input
+            value={logForm.position}
+            onChange={(e) => setLogForm((f) => ({ ...f, position: e.target.value }))}
+            placeholder="Position (optional)"
+            className={INPUT}
+          />
         </div>
-      )}
-      <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
-        {apps.map((a) => {
-          const job = jobsMap[a.job_id];
-          const primaryUrl = a.streaming_url || job?.source_url;
+        <button onClick={logApplication} disabled={logging || !logForm.url.trim()} className={BTN_PRIMARY}>
+          {logging ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+          {logging ? "Logging…" : "Log Application"}
+        </button>
+      </motion.div>
+
+      {/* apps table */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={`${CARD} overflow-hidden`}>
+        <div className="px-6 py-4 border-b border-slate-700/50 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-white">History</h2>
+          <span className="text-xs text-slate-500">{apps.length} application{apps.length !== 1 ? "s" : ""}</span>
+        </div>
+        {loading && apps.length === 0 ? (
+          <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin text-violet-500" /></div>
+        ) : apps.length === 0 ? (
+          <div className="py-16 text-center text-slate-500 text-sm">
+            No applications yet.<br />
+            <span className="text-slate-600">Use the extension to autofill forms, then log them here — or use the form above.</span>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-700/50">
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Company</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Position</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider hidden sm:table-cell">Date</th>
+                  <th className="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Update</th>
+                </tr>
+              </thead>
+              <tbody>
+                {apps.map((a, idx) => {
+                  const job = jobsMap[a.job_id];
+                  const transitions = STATUS_TRANSITIONS[a.status] ?? [];
+                  return (
+                    <motion.tr
+                      key={a.id}
+                      initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: idx * 0.04 }}
+                      className="border-b border-slate-700/30 hover:bg-slate-700/20 transition"
+                    >
+                      <td className="px-6 py-4 font-medium text-white">
+                        {job?.company_name ?? "—"}
+                        {job?.source_url && (
+                          <a href={job.source_url} target="_blank" rel="noopener noreferrer"
+                            className="ml-2 text-slate-600 hover:text-violet-400 transition" onClick={(e) => e.stopPropagation()}>
+                            <ExternalLink className="h-3 w-3 inline" />
+                          </a>
+                        )}
+                      </td>
+                      <td className="px-6 py-4 text-slate-300">{job?.job_title ?? "—"}</td>
+                      <td className="px-6 py-4">
+                        <StatusBadge status={STATUS_LABELS[a.status] ?? a.status} />
+                      </td>
+                      <td className="px-6 py-4 text-slate-400 text-sm hidden sm:table-cell">
+                        {new Date(a.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 relative" onClick={(e) => e.stopPropagation()}>
+                        {updatingId === a.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
+                        ) : transitions.length > 0 ? (
+                          <div className="relative inline-block">
+                            <button
+                              onClick={() => setStatusMenuId(statusMenuId === a.id ? null : a.id)}
+                              className="inline-flex items-center gap-1 text-xs text-slate-400 hover:text-white border border-slate-700/60 hover:border-slate-500 px-2.5 py-1.5 rounded-lg transition"
+                            >
+                              Move to <ChevronDown className="h-3 w-3" />
+                            </button>
+                            {statusMenuId === a.id && (
+                              <div className="absolute right-0 mt-1 w-44 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-20 py-1">
+                                {transitions.map((t) => (
+                                  <button key={t.next} onClick={() => updateStatus(a.id, t.next)}
+                                    className={`w-full text-left px-3 py-2 text-xs ${t.color} transition`}>
+                                    {t.label}
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        ) : null}
+                      </td>
+                    </motion.tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </motion.div>
+    </div>
+  );
+}
+
+// ─── Analytics Tab ───────────────────────────────────────────────────────────
+const CHART_COLORS = ["#7C3AED", "#06B6D4", "#10B981", "#F59E0B", "#EF4444"];
+
+function AnalyticsTab({ token }: { token: string }) {
+  const [apps, setApps] = useState<{ status: string; created_at: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.getApplications(token)
+      .then((d) => setApps(d.applications ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [token]);
+
+  if (loading) return <div className="flex justify-center py-24"><Loader2 className="h-8 w-8 animate-spin text-violet-600" /></div>;
+
+  // build last-30-days timeline
+  const timeline: { date: string; applications: number }[] = [];
+  for (let i = 29; i >= 0; i--) {
+    const d = new Date(); d.setDate(d.getDate() - i);
+    timeline.push({ date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }), applications: 0 });
+  }
+  apps.forEach((a) => {
+    const diff = Math.floor((Date.now() - a.created_at) / 86400000);
+    if (diff < 30) timeline[29 - diff].applications++;
+  });
+
+  // status distribution
+  const statusCounts: Record<string, number> = {};
+  apps.forEach((a) => { statusCounts[a.status] = (statusCounts[a.status] ?? 0) + 1; });
+  const statusData = Object.entries(statusCounts).map(([name, value]) => ({ name, value }));
+
+  const submitted = apps.filter((a) => a.status === "submitted").length;
+  const timeSaved = apps.length * 8;
+  const rate = apps.length > 0 ? ((submitted / apps.length) * 100).toFixed(0) : "0";
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h1 className="text-3xl font-bold text-white">Analytics</h1>
+        <p className="text-slate-400 mt-1">Track your application performance</p>
+      </div>
+
+      {/* stat cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[
+          { label: "Time Saved",    value: `${timeSaved}h`,  icon: Clock,       color: "from-violet-600 to-violet-500" },
+          { label: "Total Runs",    value: `${apps.length}`, icon: TrendingUp,  color: "from-cyan-600 to-cyan-500" },
+          { label: "Submit Rate",   value: `${rate}%`,       icon: Zap,         color: "from-green-600 to-green-500" },
+        ].map((s, i) => {
+          const Icon = s.icon;
           return (
-            <li key={a.id} style={{ padding: "12px 0", borderBottom: "1px solid #27272a", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div>
-                {primaryUrl ? (
-                  <a href={primaryUrl} target="_blank" rel="noopener noreferrer">
-                    {(job?.job_title || a.job_id) + (a.streaming_url ? " (live)" : "")}
-                  </a>
-                ) : (
-                  a.job_id
-                )}
-                {job?.company_name && <span style={{ color: "#a1a1aa", marginLeft: 8 }}>{job.company_name}</span>}
-                {a.streaming_url && (
-                  <button
-                    onClick={() => setWatchUrl(a.streaming_url!)}
-                    style={{ marginLeft: 12, padding: "4px 10px", borderRadius: 999, border: "1px solid #27272a", background: "#09090b", color: "#e4e4e7", fontSize: 12 }}
-                    title="Watch TinyFish browser live"
-                  >
-                    Watch live
-                  </button>
-                )}
-                <button
-                  onClick={() => setDetailsFor(a.id)}
-                  style={{ marginLeft: 8, padding: "4px 10px", borderRadius: 999, border: "1px solid #27272a", background: "transparent", color: "#e4e4e7", fontSize: 12 }}
-                  title="View details and agent report"
-                >
-                  Details
-                </button>
+            <motion.div key={i} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.08 }}
+              className={`${CARD} p-6 relative overflow-hidden hover:border-slate-600/50 transition group`}>
+              <div className="absolute inset-0 bg-gradient-to-br from-violet-600/5 to-cyan-600/5" />
+              <div className="relative z-10 flex items-start justify-between">
+                <div>
+                  <p className="text-slate-400 text-sm">{s.label}</p>
+                  <p className={`text-4xl font-bold mt-2 bg-gradient-to-r ${s.color} bg-clip-text text-transparent`}>{s.value}</p>
+                </div>
+                <div className={`p-3 bg-gradient-to-br ${s.color} rounded-lg opacity-50 group-hover:opacity-100 transition`}>
+                  <Icon className="h-5 w-5 text-white" />
+                </div>
               </div>
-              <span style={{ color: statusColor[a.status] ?? "#71717a", fontWeight: 500 }}>{a.status}</span>
-            </li>
+            </motion.div>
           );
         })}
-      </ul>
-      {apps.length === 0 && <p style={{ color: "#71717a" }}>No applications yet. Go to Jobs and click Glide on a job.</p>}
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* timeline */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className={`${CARD} p-6`}>
+          <h2 className="text-lg font-semibold text-white mb-4">Applications Over Time</h2>
+          <ResponsiveContainer width="100%" height={280}>
+            <LineChart data={timeline}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(71,85,105,0.25)" />
+              <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+              <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+              <Tooltip contentStyle={{ background: "rgba(15,23,42,.95)", border: "1px solid rgba(71,85,105,.5)", borderRadius: 8 }} labelStyle={{ color: "#e2e8f0" }} />
+              <Line type="monotone" dataKey="applications" stroke="#7C3AED" strokeWidth={2.5} dot={{ fill: "#7C3AED", r: 3 }} activeDot={{ r: 5 }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </motion.div>
+
+        {/* status pie */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className={`${CARD} p-6`}>
+          <h2 className="text-lg font-semibold text-white mb-4">Applications by Status</h2>
+          {statusData.length === 0 ? (
+            <div className="flex items-center justify-center h-[280px] text-slate-500 text-sm">No data yet</div>
+          ) : (
+            <ResponsiveContainer width="100%" height={280}>
+              <PieChart>
+                <Pie data={statusData} cx="50%" cy="50%" innerRadius={60} outerRadius={100} paddingAngle={4} dataKey="value">
+                  {statusData.map((_, i) => <Cell key={i} fill={CHART_COLORS[i % CHART_COLORS.length]} />)}
+                </Pie>
+                <Tooltip contentStyle={{ background: "rgba(15,23,42,.95)", border: "1px solid rgba(71,85,105,.5)", borderRadius: 8 }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
+          {statusData.length > 0 && (
+            <div className="mt-3 flex flex-wrap gap-3 justify-center">
+              {statusData.map((s, i) => (
+                <div key={i} className="flex items-center gap-1.5 text-xs text-slate-400">
+                  <span className="w-2.5 h-2.5 rounded-full" style={{ background: CHART_COLORS[i % CHART_COLORS.length] }} />
+                  {s.name} ({s.value})
+                </div>
+              ))}
+            </div>
+          )}
+        </motion.div>
+      </div>
+
+      {/* daily bar */}
+      <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4 }} className={`${CARD} p-6`}>
+        <h2 className="text-lg font-semibold text-white mb-4">Daily Activity (last 30 days)</h2>
+        <ResponsiveContainer width="100%" height={200}>
+          <BarChart data={timeline}>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(71,85,105,0.25)" />
+            <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 10 }} interval={4} />
+            <YAxis stroke="#64748b" tick={{ fontSize: 11 }} />
+            <Tooltip contentStyle={{ background: "rgba(15,23,42,.95)", border: "1px solid rgba(71,85,105,.5)", borderRadius: 8 }} labelStyle={{ color: "#e2e8f0" }} />
+            <Bar dataKey="applications" fill="#7C3AED" radius={[4, 4, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </motion.div>
     </div>
   );
 }
